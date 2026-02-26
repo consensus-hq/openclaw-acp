@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { executeJob as executeQuick } from "../offerings/connieonbase/guardian_scan_quick/handlers.js";
-import { executeJob as executeStandard } from "../offerings/connieonbase/guardian_scan_standard/handlers.js";
-import { executeJob as executeDeep } from "../offerings/connieonbase/guardian_scan_deep/handlers.js";
+import { executeJob as executeQuick } from "../offerings/guardian-wallet-security/guardian_scan_quick/handlers.js";
+import { executeJob as executeStandard } from "../offerings/guardian-wallet-security/guardian_scan_standard/handlers.js";
+import { executeJob as executeDeep } from "../offerings/guardian-wallet-security/guardian_scan_deep/handlers.js";
 import type { ExecuteJobResult } from "../runtime/offeringTypes.js";
 
 const VALID_WALLET = "0x1234567890abcdef1234567890abcdef12345678";
