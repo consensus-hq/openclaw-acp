@@ -1,7 +1,7 @@
 {
   "name": "guardian_scan_standard",
-  "description": "Guardian wallet security scan (standard tier, ~45s). Analyzes token approvals, transaction patterns, fund flows, and known threat databases. Returns risk score, severity, findings, and recommended actions as structured JSON.",
-  "jobFee": 2,
+  "description": "Guardian standard forensic scan (~10s). Deep approval chain analysis with GoPlus threat intelligence correlation and extended block lookback. Returns structured JSON with risk score, specific findings, threat classifications, and pre-built revoke transactions if needed. Recommended for agents making financial decisions.",
+  "jobFee": 1,
   "jobFeeType": "fixed",
   "requiredFunds": false,
   "requirement": {

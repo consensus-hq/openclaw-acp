@@ -1,6 +1,6 @@
 {
   "name": "guardian_scan_quick",
-  "description": "Guardian wallet security scan (quick tier, ~15s). Analyzes token approvals, transaction patterns, fund flows, and known threat databases. Returns risk score, severity, findings, and recommended actions as structured JSON.",
+  "description": "Guardian quick forensic scan (~3s). Your agent sends a wallet address, Guardian returns a deterministic risk score with approval analysis in structured JSON. Surface-level approval scan — best for pre-transaction security checks. Detects risky token approvals, unlimited allowances, and known drainer contracts.",
   "jobFee": 1,
   "jobFeeType": "fixed",
   "requiredFunds": false,
