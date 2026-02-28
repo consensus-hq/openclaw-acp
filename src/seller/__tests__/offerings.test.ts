@@ -7,7 +7,7 @@ import { listOfferings, loadOffering, logOfferingsStatus } from "../runtime/offe
 const OFFERINGS_ROOT = path.resolve(process.cwd(), "src/seller/offerings");
 
 test("listOfferings discovers all Guardian offerings", () => {
-  const offerings = listOfferings("guardian-wallet-security");
+  const offerings = listOfferings("guardian");
 
   assert.ok(offerings.includes("guardian_scan_quick"));
   assert.ok(offerings.includes("guardian_scan_standard"));
