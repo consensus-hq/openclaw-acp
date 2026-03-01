@@ -308,14 +308,5 @@ export function connectAcpSocket(opts: AcpSocketOptions, deps: AcpSocketDeps = {
     socket.disconnect();
   };
 
-  process.on("SIGINT", () => {
-    disconnect();
-    process.exit(0);
-  });
-  process.on("SIGTERM", () => {
-    disconnect();
-    process.exit(0);
-  });
-
   return disconnect;
 }

@@ -18,27 +18,86 @@ import {
   writePidToConfig,
   removePidFromConfig,
   sanitizeAgentName,
+  readConfig,
 } from "../../lib/config.js";
 
-function setupCleanupHandlers(): void {
+type SocketDisconnect = () => void;
+
+interface SellerAgentInfo {
+  name: string;
+  walletAddress: string;
+}
+
+const ACP_URL = process.env.ACP_SOCKET_URL || "https://acpx.virtuals.io";
+let agentDirName = "";
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function normalizeErrorMessage(err: unknown): string {
+  if (err instanceof Error) {
+    return err.message || String(err);
+  }
+  if (typeof err === "string") {
+    return err;
+  }
+  return JSON.stringify(err) || String(err);
+}
+
+function getConfiguredAgentFallback(): SellerAgentInfo | undefined {
+  // Environment override (explicit and visible in production env configs)
+  const envWallet = process.env.SELLER_AGENT_WALLET_ADDRESS?.trim();
+  const envName = process.env.SELLER_AGENT_NAME?.trim();
+  if (envWallet && envName) {
+    return { name: envName, walletAddress: envWallet };
+  }
+
+  // Local config fallback (usually unavailable in Railway container by design)
+  const config = readConfig();
+  const active = config.agents?.find((agent) => agent.active);
+  if (active?.walletAddress && active.name) {
+    return { name: active.name, walletAddress: active.walletAddress };
+  }
+
+  return undefined;
+}
+
+function setupCleanupHandlers(getSocketDisconnect?: () => SocketDisconnect | undefined): void {
+  let isShuttingDown = false;
+
   const cleanup = () => {
+    if (isShuttingDown) {
+      return;
+    }
+    isShuttingDown = true;
+
+    const disconnect = getSocketDisconnect?.();
+    if (disconnect) {
+      disconnect();
+    }
+
     removePidFromConfig();
   };
 
   process.on("exit", cleanup);
+
   process.on("SIGINT", () => {
     cleanup();
     process.exit(0);
   });
+
   process.on("SIGTERM", () => {
     cleanup();
     process.exit(0);
   });
+
   process.on("uncaughtException", (err) => {
     console.error("[seller] Uncaught exception:", err);
     cleanup();
     process.exit(1);
   });
+
   process.on("unhandledRejection", (reason, promise) => {
     console.error("[seller] Unhandled rejection at:", promise, "reason:", reason);
     cleanup();
@@ -46,10 +105,53 @@ function setupCleanupHandlers(): void {
   });
 }
 
-// -- Config --
+async function resolveSellerAgent(): Promise<{
+  walletAddress: string;
+  name: string;
+  agentDirName: string;
+}> {
+  let attempt = 0;
+  let delayMs = 5_000;
 
-const ACP_URL = process.env.ACP_SOCKET_URL || "https://acpx.virtuals.io";
-let agentDirName: string = "";
+  while (true) {
+    try {
+      const agentData = await getMyAgentInfo();
+      return {
+        walletAddress: agentData.walletAddress,
+        name: agentData.name,
+        agentDirName: sanitizeAgentName(agentData.name),
+      };
+    } catch (err) {
+      attempt += 1;
+
+      const fallback = getConfiguredAgentFallback();
+      if (fallback) {
+        const fallbackDirName = sanitizeAgentName(fallback.name);
+        console.warn(
+          `[seller] /acp/me failed (attempt ${attempt}); falling back to local/runtime config: ${fallback.name} (dir: ${fallbackDirName})`
+        );
+        console.warn(
+          `[seller] /acp/me failure details: ${normalizeErrorMessage(err).slice(0, 250)}`
+        );
+
+        return {
+          walletAddress: fallback.walletAddress,
+          name: fallback.name,
+          agentDirName: fallbackDirName,
+        };
+      }
+
+      const delay = Math.min(delayMs, 60_000);
+      console.warn(
+        `[seller] /acp/me failed (attempt ${attempt}): ${normalizeErrorMessage(err).slice(0, 250)}`
+      );
+      console.warn(`[seller] Retrying in ${Math.floor(delay / 1000)}s...`);
+      await sleep(delay);
+
+      delayMs *= 2;
+    }
+  }
+}
 
 // -- Job handling --
 
@@ -203,29 +305,21 @@ async function handleNewTask(data: AcpJobEventData): Promise<void> {
 
 async function main() {
   checkForExistingProcess();
-
   writePidToConfig(process.pid);
 
-  setupCleanupHandlers();
+  let socketDisconnect: SocketDisconnect | undefined;
 
-  let walletAddress: string;
-  try {
-    const agentData = await getMyAgentInfo();
-    walletAddress = agentData.walletAddress;
-    agentDirName = sanitizeAgentName(agentData.name);
-    console.log(`[seller] Agent: ${agentData.name} (dir: ${agentDirName})`);
-  } catch (err) {
-    console.error("[seller] Failed to resolve agent info:", (err as Error).message?.slice(0, 200));
-    console.error(
-      "[seller] Check LITE_AGENT_API_KEY is correct and agent is active on Virtuals ACP."
-    );
-    process.exit(1);
-  }
+  setupCleanupHandlers(() => socketDisconnect);
+
+  const sellerAgent = await resolveSellerAgent();
+  const walletAddress = sellerAgent.walletAddress;
+  agentDirName = sellerAgent.agentDirName;
+  console.log(`[seller] Agent: ${sellerAgent.name} (dir: ${agentDirName})`);
 
   const offerings = listOfferings(agentDirName);
   logOfferingsStatus(agentDirName, offerings);
 
-  connectAcpSocket({
+  socketDisconnect = connectAcpSocket({
     acpUrl: ACP_URL,
     walletAddress,
     callbacks: {
@@ -247,5 +341,5 @@ async function main() {
 
 main().catch((err) => {
   console.error("[seller] Fatal error:", err);
-  process.exit(1);
+  process.exitCode = 1;
 });
