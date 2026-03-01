@@ -7,7 +7,7 @@ import { listOfferings, loadOffering, logOfferingsStatus } from "../runtime/offe
 const OFFERINGS_ROOT = path.resolve(process.cwd(), "src/seller/offerings");
 
 test("listOfferings discovers all Janus offerings", () => {
-  const offerings = listOfferings("janus");
+  const offerings = listOfferings("x402janus");
 
   assert.ok(offerings.includes("janus_scan_quick"));
   assert.ok(offerings.includes("janus_scan_standard"));
