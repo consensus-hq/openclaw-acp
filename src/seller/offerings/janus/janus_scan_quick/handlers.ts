@@ -1,12 +1,12 @@
 import type { ExecuteJobResult, ValidationResult } from "../../../runtime/offeringTypes.js";
-import { executeGuardianJob, validateGuardianRequirements } from "../guardianShared.js";
+import { executeJanusJob, validateJanusRequirements } from "../janusShared.js";
 
 const TIER = "quick" as const;
 
 export function validateRequirements(requirement: Record<string, unknown>): ValidationResult {
-  return validateGuardianRequirements(requirement);
+  return validateJanusRequirements(requirement);
 }
 
 export async function executeJob(requirement: Record<string, unknown>): Promise<ExecuteJobResult> {
-  return executeGuardianJob(requirement, TIER);
+  return executeJanusJob(requirement, TIER);
 }

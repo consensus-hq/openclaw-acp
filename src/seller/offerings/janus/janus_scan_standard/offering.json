@@ -1,5 +1,5 @@
 {
-  "name": "guardian_scan_standard",
+  "name": "janus_scan_standard",
   "description": "Standard forensic analysis for AI agents making financial decisions. Deep approval chain analysis with GoPlus threat intelligence correlation and extended block lookback. Returns structured JSON with risk score, specific findings, threat classifications, and pre-built revoke transaction calldata. Recommended before any swap, transfer, or approval on Base.",
   "jobFee": 0.05,
   "jobFeeType": "fixed",

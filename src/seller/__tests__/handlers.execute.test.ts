@@ -1,21 +1,27 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { executeJob as executeQuick } from "../offerings/guardian/guardian_scan_quick/handlers.js";
-import { executeJob as executeStandard } from "../offerings/guardian/guardian_scan_standard/handlers.js";
-import { executeJob as executeDeep } from "../offerings/guardian/guardian_scan_deep/handlers.js";
+import { executeJob as executeQuick } from "../offerings/janus/janus_scan_quick/handlers.js";
+import { executeJob as executeStandard } from "../offerings/janus/janus_scan_standard/handlers.js";
+import { executeJob as executeDeep } from "../offerings/janus/janus_scan_deep/handlers.js";
 import type { ExecuteJobResult } from "../runtime/offeringTypes.js";
 
 const VALID_WALLET = "0x1234567890abcdef1234567890abcdef12345678";
 
-function getDeliverable(result: ExecuteJobResult): { type: string; value: any } {
+interface StructuredDeliverable {
+  type: string;
+  value: Record<string, unknown>;
+}
+
+function getDeliverable(result: ExecuteJobResult): StructuredDeliverable {
   assert.equal(typeof result.deliverable, "object");
-  return result.deliverable as { type: string; value: any };
+  assert.notEqual(result.deliverable, null);
+  return result.deliverable as StructuredDeliverable;
 }
 
 test("executeJob success returns structured result for quick/standard/deep", async () => {
   const originalFetch = globalThis.fetch;
 
-  globalThis.fetch = async (url, init) => {
+  globalThis.fetch = async (url: string | URL | Request): Promise<Response> => {
     const urlString = String(url);
     const tier = urlString.includes("tier=deep")
       ? "deep"
@@ -23,7 +29,6 @@ test("executeJob success returns structured result for quick/standard/deep", asy
         ? "quick"
         : "standard";
 
-    const body = JSON.parse(String(init?.body ?? "{}"));
     return new Response(
       JSON.stringify({
         analysis: {
@@ -36,7 +41,6 @@ test("executeJob success returns structured result for quick/standard/deep", asy
         },
         agentMeta: { ok: true },
         tierMeta: { tier },
-        echoedWallet: body.wallet,
       }),
       { status: 200 }
     );
@@ -46,15 +50,15 @@ test("executeJob success returns structured result for quick/standard/deep", asy
   const standard = getDeliverable(await executeStandard({ wallet: VALID_WALLET }));
   const deep = getDeliverable(await executeDeep({ wallet: VALID_WALLET }));
 
-  assert.equal(quick.type, "guardian_scan_result");
+  assert.equal(quick.type, "janus_scan_result");
   assert.equal(quick.value.success, true);
   assert.equal(quick.value.tier, "quick");
 
-  assert.equal(standard.type, "guardian_scan_result");
+  assert.equal(standard.type, "janus_scan_result");
   assert.equal(standard.value.success, true);
   assert.equal(standard.value.tier, "standard");
 
-  assert.equal(deep.type, "guardian_scan_result");
+  assert.equal(deep.type, "janus_scan_result");
   assert.equal(deep.value.success, true);
   assert.equal(deep.value.tier, "deep");
 
@@ -67,9 +71,9 @@ test("executeJob handles API 500 errors", async () => {
   globalThis.fetch = async () => new Response("upstream error", { status: 500 });
 
   const result = getDeliverable(await executeQuick({ wallet: VALID_WALLET }));
-  assert.equal(result.type, "guardian_scan_error");
+  assert.equal(result.type, "janus_scan_error");
   assert.equal(result.value.success, false);
-  assert.match(result.value.error, /Guardian API returned 500/);
+  assert.match(String(result.value.error), /Janus API returned 500/);
 
   globalThis.fetch = originalFetch;
 });
@@ -82,22 +86,22 @@ test("executeJob handles timeout/aborted requests", async () => {
   };
 
   const result = getDeliverable(await executeQuick({ wallet: VALID_WALLET }));
-  assert.equal(result.type, "guardian_scan_error");
+  assert.equal(result.type, "janus_scan_error");
   assert.equal(result.value.success, false);
-  assert.match(result.value.error, /timed out/i);
+  assert.match(String(result.value.error), /timed out/i);
 
   globalThis.fetch = originalFetch;
 });
 
-test("executeJob handles malformed Guardian API responses", async () => {
+test("executeJob handles malformed Janus API responses", async () => {
   const originalFetch = globalThis.fetch;
 
   globalThis.fetch = async () => new Response('"not-an-object"', { status: 200 });
 
   const result = getDeliverable(await executeQuick({ wallet: VALID_WALLET }));
-  assert.equal(result.type, "guardian_scan_error");
+  assert.equal(result.type, "janus_scan_error");
   assert.equal(result.value.success, false);
-  assert.match(result.value.error, /Malformed Guardian API response/);
+  assert.match(String(result.value.error), /Malformed Janus API response/);
 
   globalThis.fetch = originalFetch;
 });

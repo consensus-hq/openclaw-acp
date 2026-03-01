@@ -1,5 +1,5 @@
 {
-  "name": "guardian_approvals",
+  "name": "janus_approvals",
   "description": "List all active token approvals for any wallet with risk analysis. Returns every ERC-20 approval including spender address, approved amount, risk level, and spender reputation. Your agent gets a complete picture of a wallet's approval exposure before interacting with it. Structured JSON response ready for automated decision-making on Base.",
   "jobFee": 0.01,
   "jobFeeType": "fixed",

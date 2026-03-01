@@ -6,12 +6,15 @@ import { listOfferings, loadOffering, logOfferingsStatus } from "../runtime/offe
 
 const OFFERINGS_ROOT = path.resolve(process.cwd(), "src/seller/offerings");
 
-test("listOfferings discovers all Guardian offerings", () => {
-  const offerings = listOfferings("guardian");
+test("listOfferings discovers all Janus offerings", () => {
+  const offerings = listOfferings("janus");
 
-  assert.ok(offerings.includes("guardian_scan_quick"));
-  assert.ok(offerings.includes("guardian_scan_standard"));
-  assert.ok(offerings.includes("guardian_scan_deep"));
+  assert.ok(offerings.includes("janus_scan_quick"));
+  assert.ok(offerings.includes("janus_scan_standard"));
+  assert.ok(offerings.includes("janus_scan_deep"));
+  assert.ok(offerings.includes("janus_approvals"));
+  assert.ok(offerings.includes("janus_revoke"));
+  assert.ok(offerings.includes("janus_revoke_batch"));
 });
 
 test("loadOffering throws when offering.json or handlers.ts is missing", async () => {

@@ -1,5 +1,5 @@
 {
-  "name": "guardian_scan_deep",
+  "name": "janus_scan_deep",
   "description": "Full forensic sweep for AI agents. Graph analysis across approval chains (graphDepth=3), drainer fingerprinting, historical pattern matching, and comprehensive threat intelligence. Returns structured JSON with detailed risk assessment, all findings with severity ratings, and automated revoke transaction calldata. The most thorough on-chain security analysis available to AI agents on Base.",
   "jobFee": 0.25,
   "jobFeeType": "fixed",
