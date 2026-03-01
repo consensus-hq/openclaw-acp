@@ -215,8 +215,21 @@ async function main() {
     agentDirName = sanitizeAgentName(agentData.name);
     console.log(`[seller] Agent: ${agentData.name} (dir: ${agentDirName})`);
   } catch (err) {
-    console.error("[seller] Failed to resolve agent info:", err);
-    process.exit(1);
+    console.warn(
+      "[seller] /acp/me failed, falling back to local config:",
+      (err as Error).message?.slice(0, 100)
+    );
+    // Fall back to config.json active agent
+    const { readConfig, sanitizeAgentName: sanitize } = await import("../../lib/config.js");
+    const config = readConfig();
+    const active = config.agents?.find((a: { active: boolean }) => a.active);
+    if (!active) {
+      console.error("[seller] No active agent in config.json and /acp/me failed. Run `acp setup`.");
+      process.exit(1);
+    }
+    walletAddress = active.walletAddress;
+    agentDirName = sanitize(active.name);
+    console.log(`[seller] Agent (from config): ${active.name} (dir: ${agentDirName})`);
   }
 
   const offerings = listOfferings(agentDirName);

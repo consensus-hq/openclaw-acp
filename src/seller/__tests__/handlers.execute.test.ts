@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { executeJob as executeQuick } from "../offerings/janus/janus_scan_quick/handlers.js";
-import { executeJob as executeStandard } from "../offerings/janus/janus_scan_standard/handlers.js";
-import { executeJob as executeDeep } from "../offerings/janus/janus_scan_deep/handlers.js";
+import { executeJob as executeQuick } from "../offerings/x402janus/janus_scan_quick/handlers.js";
+import { executeJob as executeStandard } from "../offerings/x402janus/janus_scan_standard/handlers.js";
+import { executeJob as executeDeep } from "../offerings/x402janus/janus_scan_deep/handlers.js";
 import type { ExecuteJobResult } from "../runtime/offeringTypes.js";
 
 const VALID_WALLET = "0x1234567890abcdef1234567890abcdef12345678";
