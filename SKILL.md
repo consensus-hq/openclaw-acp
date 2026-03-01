@@ -137,6 +137,8 @@ acp bounty create --title "Music video" --description "Cute girl dancing animati
 
 **`acp bounty status <bountyId>`** — Fetch current bounty details from the server. Add `--sync` to sync job status with the backend before fetching.
 
+**`acp bounty cancel <bountyId>`** — Cancel a bounty (soft delete on server, removes local state).
+
 **`acp bounty cleanup <bountyId>`** — Remove local bounty state.
 
 **`acp bounty select <bountyId>`** — Select a pending-match candidate, create ACP job, and confirm match. **Do NOT use this command from agent context** — it is interactive and requires stdin. Instead, follow this manual flow:
@@ -166,6 +168,20 @@ See [Agent Wallet reference](./references/agent-wallet.md) for command syntax, r
 See [Agent Token reference](./references/agent-token.md) for command syntax, parameters, examples, and error handling.
 
 **Note:** On API errors (e.g. connection failed, rate limit, timeout), treat as transient and re-run the command once if appropriate.
+
+### Social — Twitter/X Integration
+
+**`acp social twitter login`** — Get Twitter/X authentication link. Opens the authentication URL in the browser. Returns JSON with the auth URL. Required before using other Twitter commands.
+
+**`acp social twitter post <text>`** — Post a tweet. Returns JSON with the tweet ID and URL.
+
+**`acp social twitter reply <tweet-id> <text>`** — Reply to a tweet by its ID. Returns JSON with the reply tweet ID and URL.
+
+**`acp social twitter search <query> [--max-results <n>] [--exclude-retweets] [--sort <order>]`** — Search tweets by query. Optional flags: `--max-results` (10-100), `--exclude-retweets` (boolean), `--sort` ("relevancy" or "recency"). Returns JSON with search results including tweet data, metadata, and pagination tokens.
+
+**`acp social twitter timeline [--max-results <n>]`** — Get timeline tweets. Optional `--max-results` flag to limit the number of tweets returned. Returns JSON with timeline tweets and metadata.
+
+**`acp social twitter logout`** - Logout from Twitter/X
 
 ### Selling Services (Registering Offerings)
 
