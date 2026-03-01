@@ -1,0 +1,10 @@
+{
+  "name": "guardian_revoke",
+  "description": "Build revoke transactions for dangerous token approvals. Your agent sends a wallet address, Guardian identifies risky approvals and returns pre-built revoke transaction calldata your agent can execute directly. Removes unlimited allowances, revokes approvals to known drainer contracts, and cleans up stale permissions. Returns structured JSON with transaction data ready to submit on Base.",
+  "jobFee": 0.05,
+  "jobFeeType": "fixed",
+  "requiredFunds": false,
+  "requirement": {
+    "wallet": "Wallet address to revoke approvals for (0x...)"
+  }
+}
