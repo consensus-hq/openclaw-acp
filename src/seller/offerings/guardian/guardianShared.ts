@@ -1,6 +1,6 @@
 import type { ExecuteJobResult, ValidationResult } from "../../runtime/offeringTypes.js";
 
-const GUARDIAN_API_URL = process.env.GUARDIAN_API_URL || "https://www.x402pulse.xyz";
+const GUARDIAN_API_URL = process.env.GUARDIAN_API_URL || "https://x402janus.com";
 const GUARDIAN_INTERNAL_TOKEN = process.env.GUARDIAN_INTERNAL_API_TOKEN || "";
 
 export type GuardianTier = "quick" | "standard" | "deep";

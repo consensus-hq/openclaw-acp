@@ -1,5 +1,4 @@
-import assert from "node:assert/strict";
-import { test } from "node:test";
+import { describe, expect, it } from "vitest";
 import { validateRequirements as validateQuick } from "../offerings/guardian/guardian_scan_quick/handlers.js";
 import { validateRequirements as validateStandard } from "../offerings/guardian/guardian_scan_standard/handlers.js";
 import { validateRequirements as validateDeep } from "../offerings/guardian/guardian_scan_deep/handlers.js";
@@ -23,24 +22,26 @@ const suites = [
   { tier: "deep", validate: validateDeep },
 ] as const;
 
-for (const { tier, validate } of suites) {
-  test(`${tier}: validateRequirements handles valid/invalid/missing/extra fields`, () => {
-    const validResult = validate({ wallet: VALID_WALLET });
-    assert.equal(resultValid(validResult), true, "expected valid wallet to pass");
+describe("guardian validateRequirements handlers", () => {
+  for (const { tier, validate } of suites) {
+    it(`${tier}: validateRequirements handles valid/invalid/missing/extra fields`, () => {
+      const validResult = validate({ wallet: VALID_WALLET });
+      expect(resultValid(validResult)).toBe(true);
 
-    const invalidResult = validate({ wallet: "0x1234" });
-    assert.equal(resultValid(invalidResult), false, "expected malformed wallet to fail");
-    assert.match(resultReason(invalidResult), /Invalid wallet address/i);
+      const invalidResult = validate({ wallet: "0x1234" });
+      expect(resultValid(invalidResult)).toBe(false);
+      expect(resultReason(invalidResult)).toMatch(/Invalid wallet address/i);
 
-    const missingResult = validate({});
-    assert.equal(resultValid(missingResult), false, "expected missing wallet to fail");
-    assert.match(resultReason(missingResult), /wallet \(or address\) is required/i);
+      const missingResult = validate({});
+      expect(resultValid(missingResult)).toBe(false);
+      expect(resultReason(missingResult)).toMatch(/wallet \(or address\) is required/i);
 
-    const extraFieldsResult = validate({
-      wallet: VALID_WALLET,
-      foo: "bar",
-      nested: { value: 123 },
+      const extraFieldsResult = validate({
+        wallet: VALID_WALLET,
+        foo: "bar",
+        nested: { value: 123 },
+      });
+      expect(resultValid(extraFieldsResult)).toBe(true);
     });
-    assert.equal(resultValid(extraFieldsResult), true, "expected extra fields to be ignored");
-  });
-}
+  }
+});
