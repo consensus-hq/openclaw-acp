@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { executeJob as executeQuick } from "../offerings/guardian/guardian_scan_quick/handlers.js";
-import { executeJob as executeStandard } from "../offerings/guardian/guardian_scan_standard/handlers.js";
-import { executeJob as executeDeep } from "../offerings/guardian/guardian_scan_deep/handlers.js";
+import { executeJob as executeQuick } from "../offerings/x402janus/x402janus_scan_quick/handlers.js";
+import { executeJob as executeStandard } from "../offerings/x402janus/x402janus_scan_standard/handlers.js";
+import { executeJob as executeDeep } from "../offerings/x402janus/x402janus_scan_deep/handlers.js";
 import type { ExecuteJobResult } from "../runtime/offeringTypes.js";
 
 const VALID_WALLET = "0x1234567890abcdef1234567890abcdef12345678";

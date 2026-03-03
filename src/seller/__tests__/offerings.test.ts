@@ -7,7 +7,7 @@ const OFFERINGS_ROOT = path.resolve(process.cwd(), "src/seller/offerings");
 
 describe("offerings runtime", () => {
   it("listOfferings discovers all Guardian offerings", () => {
-    const offerings = listOfferings("guardian");
+    const offerings = listOfferings("x402janus");
 
     expect(offerings).toContain("guardian_scan_quick");
     expect(offerings).toContain("guardian_scan_standard");

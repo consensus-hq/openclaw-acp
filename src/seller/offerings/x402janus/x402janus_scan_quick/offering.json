@@ -1,0 +1,10 @@
+{
+  "name": "x402janus_scan_quick",
+  "description": "Guardian quick forensic scan (~3s). Your agent sends a wallet address, Guardian returns a deterministic risk score with approval analysis in structured JSON. Surface-level approval scan \u2014 best for pre-transaction security checks. Detects risky token approvals, unlimited allowances, and known drainer contracts.",
+  "jobFee": 1,
+  "jobFeeType": "fixed",
+  "requiredFunds": false,
+  "requirement": {
+    "wallet": "Wallet address to scan (0x...)"
+  }
+}

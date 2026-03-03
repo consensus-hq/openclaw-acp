@@ -1,5 +1,5 @@
 {
-  "name": "guardian_scan_deep",
+  "name": "x402janus_scan_deep",
   "description": "Guardian deep forensic scan (~30s). Full graph analysis across approval chains (graphDepth=3), drainer fingerprinting, historical pattern matching, and comprehensive threat intelligence. Returns structured JSON with detailed risk assessment, all findings with severity ratings, and automated revoke transaction calldata. The most thorough on-chain security analysis available to AI agents.",
   "jobFee": 1,
   "jobFeeType": "fixed",

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { validateRequirements as validateQuick } from "../offerings/guardian/guardian_scan_quick/handlers.js";
-import { validateRequirements as validateStandard } from "../offerings/guardian/guardian_scan_standard/handlers.js";
-import { validateRequirements as validateDeep } from "../offerings/guardian/guardian_scan_deep/handlers.js";
+import { validateRequirements as validateQuick } from "../offerings/x402janus/x402janus_scan_quick/handlers.js";
+import { validateRequirements as validateStandard } from "../offerings/x402janus/x402janus_scan_standard/handlers.js";
+import { validateRequirements as validateDeep } from "../offerings/x402janus/x402janus_scan_deep/handlers.js";
 import type { ValidationResult } from "../runtime/offeringTypes.js";
 
 const VALID_WALLET = "0x1234567890abcdef1234567890abcdef12345678";
