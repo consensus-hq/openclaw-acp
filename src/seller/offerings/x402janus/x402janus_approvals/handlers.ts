@@ -34,7 +34,7 @@ export async function executeJob(requirement: Record<string, unknown>): Promise<
   console.log(`[janus-approvals] Fetching approvals for ${wallet}`);
 
   try {
-    const url = `${JANUS_API_URL}/api/janus/approvals/${wallet}`;
+    const url = `${JANUS_API_URL}/api/guardian/approvals/${wallet}`;
     const response = await fetchWithTimeout(
       url,
       {

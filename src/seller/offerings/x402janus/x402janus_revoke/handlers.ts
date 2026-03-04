@@ -80,7 +80,7 @@ export async function executeJob(requirement: Record<string, unknown>): Promise<
   console.log(`[janus-revoke] Building revoke txs for ${wallet}`);
 
   try {
-    const approvalsUrl = `${JANUS_API_URL}/api/janus/approvals/${wallet}`;
+    const approvalsUrl = `${JANUS_API_URL}/api/guardian/approvals/${wallet}`;
     const approvalsResponse = await fetchWithTimeout(
       approvalsUrl,
       {
@@ -132,7 +132,7 @@ export async function executeJob(requirement: Record<string, unknown>): Promise<
       };
     }
 
-    const revokeUrl = `${JANUS_API_URL}/api/janus/revoke`;
+    const revokeUrl = `${JANUS_API_URL}/api/guardian/revoke`;
     const revokeResponse = await fetchWithTimeout(
       revokeUrl,
       {
