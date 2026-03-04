@@ -8,7 +8,7 @@
 // =============================================================================
 
 import { connectAcpSocket } from "./acpSocket.js";
-import { acceptOrRejectJob, requestPayment, deliverJob } from "./sellerApi.js";
+import { acceptOrRejectJob, requestPayment, deliverJobWithGuards } from "./sellerApi.js";
 import { loadOffering, listOfferings, logOfferingsStatus } from "./offerings.js";
 import { AcpJobPhase, type AcpJobEventData } from "./types.js";
 import type { ExecuteJobResult } from "./offeringTypes.js";
@@ -321,11 +321,18 @@ export function createSellerTaskProcessor(deps: SellerTaskProcessorDeps = {}): S
           );
           const result: ExecuteJobResult = await handlers.executeJob(requirements);
 
-          await deliverJobFn(jobId, {
+          const deliveryResult = await deliverJobWithGuards(jobId, {
             deliverable: result.deliverable,
             payableDetail: result.payableDetail,
           });
-          logger.log(`[seller] Job ${jobId} — delivered.`);
+
+          if (deliveryResult.status === 'delivered') {
+            logger.log(`[seller] Job ${jobId} — delivered.`);
+          } else {
+            logger.log(
+              `[seller] Job ${jobId} delivery skipped (${deliveryResult.status}) at phase=${deliveryResult.phase}`
+            );
+          }
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
           logger.error(`[seller] Error delivering job ${jobId}:`, err);
