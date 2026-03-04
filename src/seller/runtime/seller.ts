@@ -12,6 +12,8 @@ import { acceptOrRejectJob, requestPayment, deliverJob } from "./sellerApi.js";
 import { loadOffering, listOfferings, logOfferingsStatus } from "./offerings.js";
 import { AcpJobPhase, type AcpJobEventData } from "./types.js";
 import type { ExecuteJobResult } from "./offeringTypes.js";
+import { fileURLToPath } from "url";
+import * as path from "path";
 import { getMyAgentInfo } from "../../lib/wallet.js";
 import {
   checkForExistingProcess,
@@ -51,39 +53,65 @@ function setupCleanupHandlers(): void {
 const ACP_URL = process.env.ACP_SOCKET_URL || "https://acpx.virtuals.io";
 let agentDirName: string = "";
 let sellerWalletAddress: string = "";
-let jobQueue: Promise<void> = Promise.resolve();
 
-// Idempotency: track (jobId, phase) pairs we've already processed to suppress duplicates
-const processedJobPhases = new Set<string>();
+const MAX_TRACKED_JOB_PHASES = 500;
 
-function markProcessed(jobId: number, phase: number): boolean {
-  const key = `${jobId}:${phase}`;
-  if (processedJobPhases.has(key)) return false;
-  processedJobPhases.add(key);
-  // Bound memory: evict oldest entries after 500
-  if (processedJobPhases.size > 500) {
-    const oldest = processedJobPhases.values().next().value;
-    if (oldest) processedJobPhases.delete(oldest);
+function buildJobPhaseKey(jobId: number, phase: number): string {
+  return `${jobId}:${Number(phase)}`;
+}
+
+function rememberJobPhase(processedPhases: Set<string>, jobId: number, phase: number): boolean {
+  const key = buildJobPhaseKey(jobId, phase);
+  if (processedPhases.has(key)) return false;
+
+  processedPhases.add(key);
+
+  // Bound memory: evict oldest entries.
+  if (processedPhases.size > MAX_TRACKED_JOB_PHASES) {
+    const oldest = processedPhases.values().next().value;
+    if (oldest) processedPhases.delete(oldest);
   }
+
   return true;
+}
+
+type SellerLogger = Pick<typeof console, "log" | "error">;
+
+interface SellerTaskProcessorDeps {
+  loadOfferingFn?: typeof loadOffering;
+  acceptOrRejectJobFn?: typeof acceptOrRejectJob;
+  requestPaymentFn?: typeof requestPayment;
+  deliverJobFn?: typeof deliverJob;
+  getAgentDirName?: () => string;
+  getSellerWalletAddress?: () => string;
+  logger?: SellerLogger;
+  processedJobPhases?: Set<string>;
+}
+
+export interface SellerTaskProcessor {
+  enqueueJob: (data: AcpJobEventData) => void;
+  waitForIdle: () => Promise<void>;
 }
 
 // -- Job handling --
 
-function getNegotiationMemoPayload(data: AcpJobEventData): Record<string, unknown> | undefined {
+function getNegotiationMemoPayload(
+  data: AcpJobEventData,
+  logger: SellerLogger
+): Record<string, unknown> | undefined {
   try {
-    console.log(
+    logger.log(
       `[seller:memos] job=${data.id} memoToSign=${data.memoToSign} memoCount=${data.memos.length}`
     );
     data.memos.forEach((m, i) => {
-      console.log(
+      logger.log(
         `[seller:memos]   [${i}] id=${m.id} nextPhase=${m.nextPhase} content=${String(m.content).slice(0, 300)}`
       );
     });
 
     const negotiationMemo = data.memos.find((m) => m.nextPhase === AcpJobPhase.NEGOTIATION);
     if (!negotiationMemo) {
-      console.log(`[seller:memos] no NEGOTIATION memo found (phase=${AcpJobPhase.NEGOTIATION})`);
+      logger.log(`[seller:memos] no NEGOTIATION memo found (phase=${AcpJobPhase.NEGOTIATION})`);
       return undefined;
     }
 
@@ -92,13 +120,12 @@ function getNegotiationMemoPayload(data: AcpJobEventData): Record<string, unknow
       ? (parsed as Record<string, unknown>)
       : undefined;
   } catch (err) {
-    console.error(`[seller:memos] parse error:`, err);
+    logger.error(`[seller:memos] parse error:`, err);
     return undefined;
   }
 }
 
-function resolveOfferingName(data: AcpJobEventData): string | undefined {
-  const payload = getNegotiationMemoPayload(data);
+function resolveOfferingName(payload: Record<string, unknown> | undefined): string | undefined {
   if (!payload) return undefined;
 
   const candidates = [
@@ -117,8 +144,9 @@ function resolveOfferingName(data: AcpJobEventData): string | undefined {
   return undefined;
 }
 
-function resolveServiceRequirements(data: AcpJobEventData): Record<string, any> {
-  const payload = getNegotiationMemoPayload(data);
+function resolveServiceRequirements(
+  payload: Record<string, unknown> | undefined
+): Record<string, any> {
   if (!payload) return {};
 
   const requirementCandidates = [
@@ -141,185 +169,210 @@ function resolveServiceRequirements(data: AcpJobEventData): Record<string, any> 
   return {};
 }
 
-function isProviderJob(data: AcpJobEventData): boolean {
-  if (!sellerWalletAddress) return true;
-  return data.providerAddress.toLowerCase() === sellerWalletAddress.toLowerCase();
-}
+export function createSellerTaskProcessor(deps: SellerTaskProcessorDeps = {}): SellerTaskProcessor {
+  const loadOfferingFn = deps.loadOfferingFn ?? loadOffering;
+  const acceptOrRejectJobFn = deps.acceptOrRejectJobFn ?? acceptOrRejectJob;
+  const requestPaymentFn = deps.requestPaymentFn ?? requestPayment;
+  const deliverJobFn = deps.deliverJobFn ?? deliverJob;
+  const getAgentDirName = deps.getAgentDirName ?? (() => agentDirName);
+  const getSellerWalletAddress = deps.getSellerWalletAddress ?? (() => sellerWalletAddress);
+  const logger = deps.logger ?? console;
+  const processedJobPhases = deps.processedJobPhases ?? new Set<string>();
 
-async function handleNewTask(data: AcpJobEventData): Promise<void> {
-  const jobId = data.id;
+  let jobQueue: Promise<void> = Promise.resolve();
 
-  console.log(`\n${"=".repeat(60)}`);
-  console.log(`[seller] New task  jobId=${jobId}  phase=${AcpJobPhase[data.phase] ?? data.phase}`);
-  console.log(`         client=${data.clientAddress}  price=${data.price}`);
-  console.log(`         context=${JSON.stringify(data.context)}`);
-  console.log(`${"=".repeat(60)}`);
+  const isProviderJobForRuntime = (data: AcpJobEventData): boolean => {
+    const sellerAddress = getSellerWalletAddress();
+    if (!sellerAddress) return true;
+    return data.providerAddress.toLowerCase() === sellerAddress.toLowerCase();
+  };
 
-  // Idempotency: skip if we've already handled this (jobId, phase) combination
-  if (!markProcessed(jobId, data.phase)) {
-    console.log(
-      `[seller] Skipping duplicate event jobId=${jobId} phase=${AcpJobPhase[data.phase] ?? data.phase}`
-    );
-    return;
-  }
+  async function handleNewTask(data: AcpJobEventData): Promise<void> {
+    const jobId = data.id;
 
-  // Ignore jobs where this wallet is not the provider. Without this filter,
-  // buyer-side jobs can be misprocessed by the seller runtime.
-  if (!isProviderJob(data)) {
-    console.log(
-      `[seller] Skipping job ${jobId}: provider ${data.providerAddress} does not match seller ${sellerWalletAddress}`
-    );
-    return;
-  }
+    logger.log(`\n${"=".repeat(60)}`);
+    logger.log(`[seller] New task  jobId=${jobId}  phase=${AcpJobPhase[data.phase] ?? data.phase}`);
+    logger.log(`         client=${data.clientAddress}  price=${data.price}`);
+    logger.log(`         context=${JSON.stringify(data.context)}`);
+    logger.log(`${"=".repeat(60)}`);
 
-  // Step 1: Accept / reject
-  if (data.phase === AcpJobPhase.REQUEST) {
-    if (!data.memoToSign) {
+    // Ignore jobs where this wallet is not the provider. Without this filter,
+    // buyer-side jobs can be misprocessed by the seller runtime.
+    if (!isProviderJobForRuntime(data)) {
+      logger.log(
+        `[seller] Skipping job ${jobId}: provider ${data.providerAddress} does not match seller ${getSellerWalletAddress()}`
+      );
       return;
     }
 
-    const negotiationMemo = data.memos.find((m) => m.id == Number(data.memoToSign));
-
-    if (negotiationMemo?.nextPhase !== AcpJobPhase.NEGOTIATION) {
-      return;
-    }
-
-    const offeringName = resolveOfferingName(data);
-    const requirements = resolveServiceRequirements(data);
-
-    if (!offeringName) {
-      await acceptOrRejectJob(jobId, {
-        accept: false,
-        reason: "Invalid offering name",
-      });
-      return;
-    }
-
-    try {
-      const { config, handlers } = await loadOffering(offeringName, agentDirName);
-
-      if (handlers.validateRequirements) {
-        const validationResult = handlers.validateRequirements(requirements);
-
-        let isValid: boolean;
-        let reason: string | undefined;
-
-        if (typeof validationResult === "boolean") {
-          isValid = validationResult;
-          reason = isValid ? undefined : "Validation failed";
-        } else {
-          isValid = validationResult.valid;
-          reason = validationResult.reason;
-        }
-
-        if (!isValid) {
-          const rejectionReason = reason || "Validation failed";
-          console.log(
-            `[seller] Validation failed for offering "${offeringName}" — rejecting: ${rejectionReason}`
-          );
-          await acceptOrRejectJob(jobId, {
-            accept: false,
-            reason: rejectionReason,
-          });
-          return;
-        }
+    // Step 1: Accept / reject
+    if (data.phase === AcpJobPhase.REQUEST) {
+      if (!data.memoToSign) {
+        return;
       }
 
-      await acceptOrRejectJob(jobId, {
-        accept: true,
-        reason: "Job accepted",
-      });
+      const negotiationMemo = data.memos.find((m) => m.id == Number(data.memoToSign));
 
-      const funds =
-        config.requiredFunds && handlers.requestAdditionalFunds
-          ? handlers.requestAdditionalFunds(requirements)
-          : undefined;
-
-      const paymentReason = handlers.requestPayment
-        ? handlers.requestPayment(requirements)
-        : (funds?.content ?? "Request accepted");
-
-      await requestPayment(jobId, {
-        content: paymentReason,
-        payableDetail: funds
-          ? {
-              amount: funds.amount,
-              tokenAddress: funds.tokenAddress,
-              recipient: funds.recipient,
-            }
-          : undefined,
-      });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      console.error(`[seller] Error processing job ${jobId}:`, err);
-
-      // If the offering cannot be resolved locally, reject immediately so the
-      // job does not remain stuck in REQUEST with no explicit provider decision.
-      if (/offering\.json not found|handlers\.ts not found|invalid offering name/i.test(message)) {
-        try {
-          await acceptOrRejectJob(jobId, {
-            accept: false,
-            reason: "Offering unavailable",
-          });
-        } catch (rejectErr) {
-          console.error(
-            `[seller] Failed to reject unavailable offering for job ${jobId}:`,
-            rejectErr
-          );
-        }
+      if (negotiationMemo?.nextPhase !== AcpJobPhase.NEGOTIATION) {
+        return;
       }
-    }
-  }
 
-  // Handle TRANSACTION (deliver)
-  if (data.phase === AcpJobPhase.TRANSACTION) {
-    const offeringName = resolveOfferingName(data);
-    const requirements = resolveServiceRequirements(data);
+      const negotiationPayload = getNegotiationMemoPayload(data, logger);
+      const offeringName = resolveOfferingName(negotiationPayload);
+      const requirements = resolveServiceRequirements(negotiationPayload);
 
-    if (offeringName) {
-      try {
-        const { handlers } = await loadOffering(offeringName, agentDirName);
-        console.log(
-          `[seller] Executing offering "${offeringName}" for job ${jobId} (TRANSACTION phase)...`
-        );
-        const result: ExecuteJobResult = await handlers.executeJob(requirements);
-
-        await deliverJob(jobId, {
-          deliverable: result.deliverable,
-          payableDetail: result.payableDetail,
+      if (!offeringName) {
+        await acceptOrRejectJobFn(jobId, {
+          accept: false,
+          reason: "Invalid offering name",
         });
-        console.log(`[seller] Job ${jobId} — delivered.`);
+        return;
+      }
+
+      try {
+        const { config, handlers } = await loadOfferingFn(offeringName, getAgentDirName());
+
+        if (handlers.validateRequirements) {
+          const validationResult = handlers.validateRequirements(requirements);
+
+          let isValid: boolean;
+          let reason: string | undefined;
+
+          if (typeof validationResult === "boolean") {
+            isValid = validationResult;
+            reason = isValid ? undefined : "Validation failed";
+          } else {
+            isValid = validationResult.valid;
+            reason = validationResult.reason;
+          }
+
+          if (!isValid) {
+            const rejectionReason = reason || "Validation failed";
+            logger.log(
+              `[seller] Validation failed for offering "${offeringName}" — rejecting: ${rejectionReason}`
+            );
+            await acceptOrRejectJobFn(jobId, {
+              accept: false,
+              reason: rejectionReason,
+            });
+            return;
+          }
+        }
+
+        await acceptOrRejectJobFn(jobId, {
+          accept: true,
+          reason: "Job accepted",
+        });
+
+        const funds =
+          config.requiredFunds && handlers.requestAdditionalFunds
+            ? handlers.requestAdditionalFunds(requirements)
+            : undefined;
+
+        const paymentReason = handlers.requestPayment
+          ? handlers.requestPayment(requirements)
+          : (funds?.content ?? "Request accepted");
+
+        await requestPaymentFn(jobId, {
+          content: paymentReason,
+          payableDetail: funds
+            ? {
+                amount: funds.amount,
+                tokenAddress: funds.tokenAddress,
+                recipient: funds.recipient,
+              }
+            : undefined,
+        });
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        console.error(`[seller] Error delivering job ${jobId}:`, err);
-        // Fail closed on unknown/missing offerings — reject explicitly instead of leaving job stuck
-        if (/offering\.json not found|handlers\.ts not found/i.test(message)) {
+        logger.error(`[seller] Error processing job ${jobId}:`, err);
+
+        // If the offering cannot be resolved locally, reject immediately so the
+        // job does not remain stuck in REQUEST with no explicit provider decision.
+        if (
+          /offering\.json not found|handlers\.ts not found|invalid offering name/i.test(message)
+        ) {
           try {
-            await acceptOrRejectJob(jobId, { accept: false, reason: "Offering unavailable" });
+            await acceptOrRejectJobFn(jobId, {
+              accept: false,
+              reason: "Offering unavailable",
+            });
           } catch (rejectErr) {
-            console.error(`[seller] Failed to reject stuck job ${jobId}:`, rejectErr);
+            logger.error(
+              `[seller] Failed to reject unavailable offering for job ${jobId}:`,
+              rejectErr
+            );
           }
         }
       }
-    } else {
-      console.log(`[seller] Job ${jobId} in TRANSACTION but no offering resolved — skipping`);
     }
-    return;
+
+    // Handle TRANSACTION (deliver)
+    if (data.phase === AcpJobPhase.TRANSACTION) {
+      const negotiationPayload = getNegotiationMemoPayload(data, logger);
+      const offeringName = resolveOfferingName(negotiationPayload);
+      const requirements = resolveServiceRequirements(negotiationPayload);
+
+      if (offeringName) {
+        try {
+          const { handlers } = await loadOfferingFn(offeringName, getAgentDirName());
+          logger.log(
+            `[seller] Executing offering "${offeringName}" for job ${jobId} (TRANSACTION phase)...`
+          );
+          const result: ExecuteJobResult = await handlers.executeJob(requirements);
+
+          await deliverJobFn(jobId, {
+            deliverable: result.deliverable,
+            payableDetail: result.payableDetail,
+          });
+          logger.log(`[seller] Job ${jobId} — delivered.`);
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          logger.error(`[seller] Error delivering job ${jobId}:`, err);
+          // Fail closed on unknown/missing offerings — reject explicitly instead of leaving job stuck
+          if (/offering\.json not found|handlers\.ts not found/i.test(message)) {
+            try {
+              await acceptOrRejectJobFn(jobId, { accept: false, reason: "Offering unavailable" });
+            } catch (rejectErr) {
+              logger.error(`[seller] Failed to reject stuck job ${jobId}:`, rejectErr);
+            }
+          }
+        }
+      } else {
+        logger.log(`[seller] Job ${jobId} in TRANSACTION but no offering resolved — skipping`);
+      }
+      return;
+    }
+
+    logger.log(
+      `[seller] Job ${jobId} in phase ${AcpJobPhase[data.phase] ?? data.phase} — no action needed`
+    );
   }
 
-  console.log(
-    `[seller] Job ${jobId} in phase ${AcpJobPhase[data.phase] ?? data.phase} — no action needed`
-  );
+  function enqueueJob(data: AcpJobEventData): void {
+    const phaseLabel = AcpJobPhase[data.phase] ?? data.phase;
+
+    // Idempotency: skip duplicate (jobId, phase) before queueing/parsing/execution.
+    if (!rememberJobPhase(processedJobPhases, data.id, data.phase)) {
+      logger.log(`[seller] Skipping duplicate event jobId=${data.id} phase=${phaseLabel}`);
+      return;
+    }
+
+    // Process tasks serially to avoid concurrent wallet/user-op mutations.
+    jobQueue = jobQueue
+      .then(() => handleNewTask(data))
+      .catch((err) => {
+        logger.error("[seller] Unhandled error in handleNewTask:", err);
+      });
+  }
+
+  return {
+    enqueueJob,
+    waitForIdle: () => jobQueue,
+  };
 }
 
-function enqueueJob(data: AcpJobEventData): void {
-  // Process tasks serially to avoid concurrent wallet/user-op mutations.
-  jobQueue = jobQueue
-    .then(() => handleNewTask(data))
-    .catch((err) => {
-      console.error("[seller] Unhandled error in handleNewTask:", err);
-    });
-}
+const sellerTaskProcessor = createSellerTaskProcessor();
 
 // -- Main --
 
@@ -350,7 +403,7 @@ async function main() {
     walletAddress,
     callbacks: {
       onNewTask: (data) => {
-        enqueueJob(data);
+        sellerTaskProcessor.enqueueJob(data);
       },
       onEvaluate: (data) => {
         console.log(
@@ -363,7 +416,14 @@ async function main() {
   console.log("[seller] Seller runtime is running. Waiting for jobs...\n");
 }
 
-main().catch((err) => {
-  console.error("[seller] Fatal error:", err);
-  process.exit(1);
-});
+function isDirectExecution(): boolean {
+  if (!process.argv[1]) return false;
+  return path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+}
+
+if (isDirectExecution()) {
+  main().catch((err) => {
+    console.error("[seller] Fatal error:", err);
+    process.exit(1);
+  });
+}
