@@ -69,6 +69,9 @@ export function validateGuardianRequirements(
   requirement: Record<string, unknown>
 ): ValidationResult {
   const req = requirement as ScanRequirement;
+  console.log(
+    `[guardian-validate] requirement keys: ${Object.keys(requirement).join(",")} | raw: ${JSON.stringify(requirement).slice(0, 200)}`
+  );
   const wallet = req.wallet || req.address || req.walletAddress;
 
   if (!wallet) {
