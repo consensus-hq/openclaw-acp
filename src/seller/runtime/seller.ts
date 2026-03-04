@@ -8,7 +8,12 @@
 // =============================================================================
 
 import { connectAcpSocket } from "./acpSocket.js";
-import { acceptOrRejectJob, requestPayment, deliverJobWithGuards } from "./sellerApi.js";
+import {
+  acceptOrRejectJob,
+  requestPayment,
+  deliverJob,
+  deliverJobWithGuards,
+} from "./sellerApi.js";
 import {
   loadOffering,
   listOfferings,
@@ -331,7 +336,7 @@ export function createSellerTaskProcessor(deps: SellerTaskProcessorDeps = {}): S
             payableDetail: result.payableDetail,
           });
 
-          if (deliveryResult.status === 'delivered') {
+          if (deliveryResult.status === "delivered") {
             logger.log(`[seller] Job ${jobId} — delivered.`);
           } else {
             logger.log(
