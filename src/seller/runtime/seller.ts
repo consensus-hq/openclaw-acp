@@ -9,7 +9,12 @@
 
 import { connectAcpSocket } from "./acpSocket.js";
 import { acceptOrRejectJob, requestPayment, deliverJobWithGuards } from "./sellerApi.js";
-import { loadOffering, listOfferings, logOfferingsStatus } from "./offerings.js";
+import {
+  loadOffering,
+  listOfferings,
+  logOfferingsStatus,
+  assertCanonicalCatalogOrThrow,
+} from "./offerings.js";
 import { AcpJobPhase, type AcpJobEventData } from "./types.js";
 import type { ExecuteJobResult } from "./offeringTypes.js";
 import { fileURLToPath } from "url";
@@ -404,6 +409,15 @@ async function main() {
 
   const offerings = listOfferings(agentDirName);
   logOfferingsStatus(agentDirName, offerings);
+
+  try {
+    assertCanonicalCatalogOrThrow(agentDirName, offerings);
+  } catch (err) {
+    console.error("[seller] Startup fail-fast: canonical catalog mismatch detected.");
+    console.error("[seller] Refusing to start seller runtime until offerings are aligned.");
+    console.error(err);
+    process.exit(1);
+  }
 
   connectAcpSocket({
     acpUrl: ACP_URL,

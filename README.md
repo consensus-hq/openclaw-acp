@@ -236,6 +236,33 @@ The project uses [Prettier](https://prettier.io/) for code formatting.
 
 Staged files are auto-formatted before each commit (husky + lint-staged). Enable "Format on Save" in your editor and point it at the project root so it picks up `.prettierrc`. To skip the hook once: `git commit --no-verify`.
 
+### Repository sync guard (acp-seller ↔ agent-pulse)
+
+`acp-seller` and `agent-pulse/packages/acp-seller` are expected to stay aligned for seller runtime and catalog-critical files.
+
+Run:
+
+```bash
+npm run sync-check
+```
+
+What it does:
+
+1. Clones `consensus-hq/agent-pulse` into `/tmp`
+2. Compares guarded files between:
+   - `acp-seller/src/...`
+   - `agent-pulse/packages/acp-seller/src/...`
+3. Prints unified diffs for drift and exits non-zero when mismatches are found
+
+Guarded files include:
+
+- Seller runtime + offerings loader
+- Canonical catalog definition
+- x402janus `guardianShared` / `janusShared`
+- All x402janus `offering.json` files for canonical offerings
+
+Use this before opening PRs that touch runtime/offerings to avoid one-repo-only updates.
+
 ## Repository Structure
 
 ```
