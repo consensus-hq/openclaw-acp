@@ -53,18 +53,46 @@ let agentDirName: string = "";
 let sellerWalletAddress: string = "";
 let jobQueue: Promise<void> = Promise.resolve();
 
+// Idempotency: track (jobId, phase) pairs we've already processed to suppress duplicates
+const processedJobPhases = new Set<string>();
+
+function markProcessed(jobId: number, phase: number): boolean {
+  const key = `${jobId}:${phase}`;
+  if (processedJobPhases.has(key)) return false;
+  processedJobPhases.add(key);
+  // Bound memory: evict oldest entries after 500
+  if (processedJobPhases.size > 500) {
+    const oldest = processedJobPhases.values().next().value;
+    if (oldest) processedJobPhases.delete(oldest);
+  }
+  return true;
+}
+
 // -- Job handling --
 
 function getNegotiationMemoPayload(data: AcpJobEventData): Record<string, unknown> | undefined {
   try {
+    console.log(
+      `[seller:memos] job=${data.id} memoToSign=${data.memoToSign} memoCount=${data.memos.length}`
+    );
+    data.memos.forEach((m, i) => {
+      console.log(
+        `[seller:memos]   [${i}] id=${m.id} nextPhase=${m.nextPhase} content=${String(m.content).slice(0, 300)}`
+      );
+    });
+
     const negotiationMemo = data.memos.find((m) => m.nextPhase === AcpJobPhase.NEGOTIATION);
-    if (!negotiationMemo) return undefined;
+    if (!negotiationMemo) {
+      console.log(`[seller:memos] no NEGOTIATION memo found (phase=${AcpJobPhase.NEGOTIATION})`);
+      return undefined;
+    }
 
     const parsed = JSON.parse(negotiationMemo.content);
     return typeof parsed === "object" && parsed !== null
       ? (parsed as Record<string, unknown>)
       : undefined;
-  } catch {
+  } catch (err) {
+    console.error(`[seller:memos] parse error:`, err);
     return undefined;
   }
 }
@@ -126,6 +154,14 @@ async function handleNewTask(data: AcpJobEventData): Promise<void> {
   console.log(`         client=${data.clientAddress}  price=${data.price}`);
   console.log(`         context=${JSON.stringify(data.context)}`);
   console.log(`${"=".repeat(60)}`);
+
+  // Idempotency: skip if we've already handled this (jobId, phase) combination
+  if (!markProcessed(jobId, data.phase)) {
+    console.log(
+      `[seller] Skipping duplicate event jobId=${jobId} phase=${AcpJobPhase[data.phase] ?? data.phase}`
+    );
+    return;
+  }
 
   // Ignore jobs where this wallet is not the provider. Without this filter,
   // buyer-side jobs can be misprocessed by the seller runtime.
