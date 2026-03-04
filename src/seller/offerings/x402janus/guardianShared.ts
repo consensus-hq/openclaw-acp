@@ -19,6 +19,7 @@ const TIER_SETTINGS: Record<GuardianTier, TierSettings> = {
 interface ScanRequirement {
   wallet?: string;
   address?: string;
+  walletAddress?: string;
 }
 
 type GuardianAnalysis = {
@@ -68,7 +69,7 @@ export function validateGuardianRequirements(
   requirement: Record<string, unknown>
 ): ValidationResult {
   const req = requirement as ScanRequirement;
-  const wallet = req.wallet || req.address;
+  const wallet = req.wallet || req.address || req.walletAddress;
 
   if (!wallet) {
     return { valid: false, reason: "wallet (or address) is required" };
@@ -82,7 +83,7 @@ export async function executeGuardianJob(
   tier: GuardianTier
 ): Promise<ExecuteJobResult> {
   const req = requirement as ScanRequirement;
-  const wallet = req.wallet || req.address || "";
+  const wallet = req.wallet || req.address || req.walletAddress || "";
   const timeoutMs = getTimeoutMs(tier);
   const expectedScanSeconds = TIER_SETTINGS[tier].expectedScanSeconds;
 

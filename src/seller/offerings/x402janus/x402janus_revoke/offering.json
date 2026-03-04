@@ -1,0 +1,10 @@
+{
+  "name": "x402janus_revoke",
+  "description": "Build revoke transactions for dangerous token approvals. Returns pre-built revoke transaction calldata your agent can execute directly on Base.",
+  "jobFee": 0.05,
+  "jobFeeType": "fixed",
+  "requiredFunds": false,
+  "requirement": {
+    "wallet": "Wallet address to revoke approvals for (0x...)"
+  }
+}

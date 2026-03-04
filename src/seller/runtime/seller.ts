@@ -50,30 +50,72 @@ function setupCleanupHandlers(): void {
 
 const ACP_URL = process.env.ACP_SOCKET_URL || "https://acpx.virtuals.io";
 let agentDirName: string = "";
+let sellerWalletAddress: string = "";
+let jobQueue: Promise<void> = Promise.resolve();
 
 // -- Job handling --
 
-function resolveOfferingName(data: AcpJobEventData): string | undefined {
+function getNegotiationMemoPayload(data: AcpJobEventData): Record<string, unknown> | undefined {
   try {
     const negotiationMemo = data.memos.find((m) => m.nextPhase === AcpJobPhase.NEGOTIATION);
-    if (negotiationMemo) {
-      return JSON.parse(negotiationMemo.content).name;
-    }
+    if (!negotiationMemo) return undefined;
+
+    const parsed = JSON.parse(negotiationMemo.content);
+    return typeof parsed === "object" && parsed !== null
+      ? (parsed as Record<string, unknown>)
+      : undefined;
   } catch {
     return undefined;
   }
 }
 
-function resolveServiceRequirements(data: AcpJobEventData): Record<string, any> {
-  const negotiationMemo = data.memos.find((m) => m.nextPhase === AcpJobPhase.NEGOTIATION);
-  if (negotiationMemo) {
-    try {
-      return JSON.parse(negotiationMemo.content).requirement;
-    } catch {
-      return {};
+function resolveOfferingName(data: AcpJobEventData): string | undefined {
+  const payload = getNegotiationMemoPayload(data);
+  if (!payload) return undefined;
+
+  const candidates = [
+    payload.name,
+    payload.offeringName,
+    payload.jobOfferingName,
+    payload.offering,
+  ];
+
+  for (const candidate of candidates) {
+    if (typeof candidate === "string" && candidate.trim()) {
+      return candidate.trim();
     }
   }
+
+  return undefined;
+}
+
+function resolveServiceRequirements(data: AcpJobEventData): Record<string, any> {
+  const payload = getNegotiationMemoPayload(data);
+  if (!payload) return {};
+
+  const requirementCandidates = [
+    payload.requirement,
+    payload.requirements,
+    payload.serviceRequirements,
+  ];
+
+  for (const candidate of requirementCandidates) {
+    if (typeof candidate === "object" && candidate !== null) {
+      return candidate as Record<string, any>;
+    }
+  }
+
+  // Fallback for payloads that inline requirement fields at root
+  if ("wallet" in payload || "walletAddress" in payload || "address" in payload) {
+    return payload as Record<string, any>;
+  }
+
   return {};
+}
+
+function isProviderJob(data: AcpJobEventData): boolean {
+  if (!sellerWalletAddress) return true;
+  return data.providerAddress.toLowerCase() === sellerWalletAddress.toLowerCase();
 }
 
 async function handleNewTask(data: AcpJobEventData): Promise<void> {
@@ -84,6 +126,15 @@ async function handleNewTask(data: AcpJobEventData): Promise<void> {
   console.log(`         client=${data.clientAddress}  price=${data.price}`);
   console.log(`         context=${JSON.stringify(data.context)}`);
   console.log(`${"=".repeat(60)}`);
+
+  // Ignore jobs where this wallet is not the provider. Without this filter,
+  // buyer-side jobs can be misprocessed by the seller runtime.
+  if (!isProviderJob(data)) {
+    console.log(
+      `[seller] Skipping job ${jobId}: provider ${data.providerAddress} does not match seller ${sellerWalletAddress}`
+    );
+    return;
+  }
 
   // Step 1: Accept / reject
   if (data.phase === AcpJobPhase.REQUEST) {
@@ -163,7 +214,24 @@ async function handleNewTask(data: AcpJobEventData): Promise<void> {
           : undefined,
       });
     } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
       console.error(`[seller] Error processing job ${jobId}:`, err);
+
+      // If the offering cannot be resolved locally, reject immediately so the
+      // job does not remain stuck in REQUEST with no explicit provider decision.
+      if (/offering\.json not found|handlers\.ts not found|invalid offering name/i.test(message)) {
+        try {
+          await acceptOrRejectJob(jobId, {
+            accept: false,
+            reason: "Offering unavailable",
+          });
+        } catch (rejectErr) {
+          console.error(
+            `[seller] Failed to reject unavailable offering for job ${jobId}:`,
+            rejectErr
+          );
+        }
+      }
     }
   }
 
@@ -186,7 +254,16 @@ async function handleNewTask(data: AcpJobEventData): Promise<void> {
         });
         console.log(`[seller] Job ${jobId} — delivered.`);
       } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
         console.error(`[seller] Error delivering job ${jobId}:`, err);
+        // Fail closed on unknown/missing offerings — reject explicitly instead of leaving job stuck
+        if (/offering\.json not found|handlers\.ts not found/i.test(message)) {
+          try {
+            await acceptOrRejectJob(jobId, { accept: false, reason: "Offering unavailable" });
+          } catch (rejectErr) {
+            console.error(`[seller] Failed to reject stuck job ${jobId}:`, rejectErr);
+          }
+        }
       }
     } else {
       console.log(`[seller] Job ${jobId} in TRANSACTION but no offering resolved — skipping`);
@@ -197,6 +274,15 @@ async function handleNewTask(data: AcpJobEventData): Promise<void> {
   console.log(
     `[seller] Job ${jobId} in phase ${AcpJobPhase[data.phase] ?? data.phase} — no action needed`
   );
+}
+
+function enqueueJob(data: AcpJobEventData): void {
+  // Process tasks serially to avoid concurrent wallet/user-op mutations.
+  jobQueue = jobQueue
+    .then(() => handleNewTask(data))
+    .catch((err) => {
+      console.error("[seller] Unhandled error in handleNewTask:", err);
+    });
 }
 
 // -- Main --
@@ -212,6 +298,7 @@ async function main() {
   try {
     const agentData = await getMyAgentInfo();
     walletAddress = agentData.walletAddress;
+    sellerWalletAddress = agentData.walletAddress;
     agentDirName = sanitizeAgentName(agentData.name);
     console.log(`[seller] Agent: ${agentData.name} (dir: ${agentDirName})`);
   } catch (err) {
@@ -227,9 +314,7 @@ async function main() {
     walletAddress,
     callbacks: {
       onNewTask: (data) => {
-        handleNewTask(data).catch((err) =>
-          console.error("[seller] Unhandled error in handleNewTask:", err)
-        );
+        enqueueJob(data);
       },
       onEvaluate: (data) => {
         console.log(

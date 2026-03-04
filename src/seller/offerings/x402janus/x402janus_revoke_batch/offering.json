@@ -1,0 +1,10 @@
+{
+  "name": "x402janus_revoke_batch",
+  "description": "Batch revoke all dangerous token approvals in one call. Returns structured JSON with an array of transactions ready to execute on Base.",
+  "jobFee": 0.1,
+  "jobFeeType": "fixed",
+  "requiredFunds": false,
+  "requirement": {
+    "wallet": "Wallet address to batch-revoke approvals for (0x...)"
+  }
+}
