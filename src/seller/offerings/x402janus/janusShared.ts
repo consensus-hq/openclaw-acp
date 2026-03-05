@@ -93,7 +93,7 @@ const HMAC_PREFIX = "guardian-internal-v1";
 function createInternalAuthHeaders(secret: string): Record<string, string> {
   const trimmed = secret.trim();
   if (!trimmed) {
-    return {};
+    throw new Error("[acp-seller] GUARDIAN_INTERNAL_API_TOKEN is empty — cannot sign request");
   }
   const timestamp = Math.floor(Date.now() / 1000).toString();
   const nonce = randomUUID();
