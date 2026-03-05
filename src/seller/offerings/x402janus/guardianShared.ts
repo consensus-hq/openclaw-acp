@@ -1,7 +1,27 @@
+import { createHmac, randomUUID } from "node:crypto";
 import type { ExecuteJobResult, ValidationResult } from "../../runtime/offeringTypes.js";
 
 const GUARDIAN_API_URL = process.env.GUARDIAN_API_URL || "https://x402janus.com";
 const GUARDIAN_INTERNAL_TOKEN = process.env.GUARDIAN_INTERNAL_API_TOKEN || "";
+
+// ── HMAC auth (matches apps/web/src/lib/guardian/internal-auth.ts) ──────────
+const HMAC_PREFIX = "guardian-internal-v1";
+
+function createInternalAuthHeaders(secret: string): Record<string, string> {
+  const trimmed = secret.trim();
+  if (!trimmed) {
+    throw new Error("[acp-seller] GUARDIAN_INTERNAL_API_TOKEN is empty — cannot sign request");
+  }
+  const timestamp = Math.floor(Date.now() / 1000).toString();
+  const nonce = randomUUID();
+  const payload = `${HMAC_PREFIX}:${timestamp}:${nonce}`;
+  const signature = createHmac("sha256", trimmed).update(payload).digest("hex");
+  return {
+    "x-guardian-auth-timestamp": timestamp,
+    "x-nonce": nonce,
+    "x-guardian-auth-signature": signature,
+  };
+}
 
 export type GuardianTier = "quick" | "standard" | "deep";
 
@@ -107,7 +127,7 @@ export async function executeGuardianJob(
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "x-guardian-internal-token": GUARDIAN_INTERNAL_TOKEN,
+          ...createInternalAuthHeaders(GUARDIAN_INTERNAL_TOKEN),
         },
         body: JSON.stringify({
           wallet,
