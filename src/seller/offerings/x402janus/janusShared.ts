@@ -1,3 +1,4 @@
+import { createHmac, randomUUID } from "node:crypto";
 import type { ValidationResult } from "../../runtime/offeringTypes.js";
 import { validateGuardianRequirements } from "./guardianShared.js";
 
@@ -86,14 +87,32 @@ export function getJanusTimeoutMs(operation: JanusOperation): number {
   );
 }
 
+// ── HMAC auth (matches apps/web/src/lib/guardian/internal-auth.ts) ──────────
+const HMAC_PREFIX = "guardian-internal-v1";
+
+function createInternalAuthHeaders(secret: string): Record<string, string> {
+  const trimmed = secret.trim();
+  if (!trimmed) {
+    throw new Error("[acp-seller] GUARDIAN_INTERNAL_API_TOKEN is empty — cannot sign request");
+  }
+  const timestamp = Math.floor(Date.now() / 1000).toString();
+  const nonce = randomUUID();
+  const payload = `${HMAC_PREFIX}:${timestamp}:${nonce}`;
+  const signature = createHmac("sha256", trimmed).update(payload).digest("hex");
+  return {
+    "x-guardian-auth-timestamp": timestamp,
+    "x-nonce": nonce,
+    "x-guardian-auth-signature": signature,
+  };
+}
+
 export function buildJanusAuthHeaders(
   additional: Record<string, string> = {}
 ): Record<string, string> {
   const headers: Record<string, string> = { ...additional };
 
   if (INTERNAL_TOKEN) {
-    headers["x-guardian-internal-token"] = INTERNAL_TOKEN;
-    headers["x-janus-internal-token"] = INTERNAL_TOKEN;
+    Object.assign(headers, createInternalAuthHeaders(INTERNAL_TOKEN));
   }
 
   return headers;
